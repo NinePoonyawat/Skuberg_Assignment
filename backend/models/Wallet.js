@@ -41,9 +41,9 @@ module.exports = (sequelize) => {
 
     // Method to update balance
     async updateBalance(amount) {
-      this.balance += amount;
+      const updatedBalance = parseFloat(this.balance) + amount;
+      this.balance = updatedBalance;
       await this.save();
-
       return this;
     }
   }

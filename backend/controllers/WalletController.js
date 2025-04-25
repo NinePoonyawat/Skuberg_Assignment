@@ -76,8 +76,10 @@ class WalletController {
         status: "completed",
       });
 
+      console.log("before:", wallet.balance);
       // Update wallet balance
       await wallet.updateBalance(parseFloat(amount));
+      console.log("after:", wallet.balance);
 
       res.status(200).json({
         message: "Deposit successful",
@@ -153,7 +155,7 @@ class WalletController {
   // Transfer funds to another user within the system
   async transfer(req, res) {
     try {
-      const { from_wallet_id, to_address, amount } = req.body;
+      const { from_wallet_id, to_user_id, amount } = req.body;
       const userId = req.user.id;
 
       // Check if source wallet belongs to user
@@ -176,21 +178,16 @@ class WalletController {
       }
 
       // Find destination wallet by address
+      console.log(to_user_id);
+      console.log(fromWallet.currency_id);
       const toWallet = await Wallet.findOne({
-        where: { address: to_address },
+        where: { user_id: to_user_id, currency_id: fromWallet.currency_id },
         include: [Currency],
       });
 
       if (!toWallet) {
         return res.status(404).json({
           message: "Destination wallet not found",
-        });
-      }
-
-      // Ensure same currency
-      if (fromWallet.currency_id !== toWallet.currency_id) {
-        return res.status(400).json({
-          message: "Cannot transfer between different currencies",
         });
       }
 
