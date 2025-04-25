@@ -1,0 +1,37 @@
+{
+  "development": {
+    "username": "root",
+    "password": "root1234",
+    "database": "crypto_exchange_development",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "define": {
+      "underscored": true,
+      "timestamps": false
+    }
+  },
+  "test": {
+    "username": "root",
+    "password": "root1234",
+    "database": "crypto_exchange_test",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "logging": false,
+    "define": {
+      "underscored": true,
+      "timestamps": false
+    }
+  },
+  "production": {
+    "username": "DATABASE_USER",
+    "password": "DATABASE_PASSWORD",
+    "database": "crypto_exchange_production",
+    "host": "DATABASE_HOST",
+    "dialect": "mysql",
+    "logging": false,
+    "define": {
+      "underscored": true,
+      "timestamps": false
+    }
+  }
+}

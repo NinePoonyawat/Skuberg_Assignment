@@ -1,0 +1,2759 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+4. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+<additional_info>
+
+</additional_info>
+
+</file_summary>
+
+<directory_structure>
+app.js
+config/config.json
+config/database.js
+controllers/AuthController.js
+controllers/OrderController.js
+controllers/TransactionController.js
+controllers/WalletController.js
+middleware/auth.js
+migrations/20250424165320-create-users.js
+migrations/20250424165336-create-currencies.js
+migrations/20250424165343-create-wallets.js
+migrations/20250424165416-create-orders.js
+migrations/20250424165424-create-trades.js
+models/Currency.js
+models/index.js
+models/Order.js
+models/Trade.js
+models/Transation.js
+models/User.js
+models/Wallet.js
+package.json
+routes/auth.js
+routes/index.js
+routes/order.js
+routes/transaction.js
+routes/wallet.js
+seeders/DatabaseSeeder.js
+test/auth.test.js
+test/order.test.js
+test/transaction.test.js
+test/wallet.test.js
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app.js">
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const { sequelize } = require("./models");
+
+// Load env variables
+dotenv.config();
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use("/api", require("./routes"));
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    message: "Internal server error",
+    error: err.message,
+  });
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+
+  // Sync database
+  try {
+    await sequelize.sync();
+    console.log("Database synchronized");
+  } catch (error) {
+    console.error("Failed to sync database:", error);
+  }
+});
+
+module.exports = app;
+</file>
+
+<file path="config/config.json">
+{
+  "development": {
+    "username": "root",
+    "password": "root1234",
+    "database": "crypto_exchange_development",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "define": {
+      "underscored": true,
+      "timestamps": false
+    }
+  },
+  "test": {
+    "username": "root",
+    "password": "root1234",
+    "database": "crypto_exchange_test",
+    "host": "127.0.0.1",
+    "dialect": "mysql",
+    "logging": false,
+    "define": {
+      "underscored": true,
+      "timestamps": false
+    }
+  },
+  "production": {
+    "username": "DATABASE_USER",
+    "password": "DATABASE_PASSWORD",
+    "database": "crypto_exchange_production",
+    "host": "DATABASE_HOST",
+    "dialect": "mysql",
+    "logging": false,
+    "define": {
+      "underscored": true,
+      "timestamps": false
+    }
+  }
+}
+</file>
+
+<file path="config/database.js">
+const { Sequelize } = require("sequelize");
+const dotenv = require("dotenv");
+
+dotenv.config();
+
+const sequelize = new Sequelize(
+  process.env.DB_NAME || "crypto_exchange",
+  process.env.DB_USER || "root",
+  process.env.DB_PASS || "",
+  {
+    host: process.env.DB_HOST || "localhost",
+    port: process.env.DB_PORT || 3306,
+    dialect: process.env.DB_DIALECT || "mysql",
+    logging: process.env.NODE_ENV === "development" ? console.log : false,
+    define: {
+      underscored: true,
+      timestamps: false,
+    },
+  }
+);
+
+module.exports = sequelize;
+</file>
+
+<file path="controllers/AuthController.js">
+const jwt = require("jsonwebtoken");
+const { User, Wallet, Currency } = require("../models");
+
+class AuthController {
+  // Register a new user
+  async register(req, res) {
+    try {
+      const { username, email, password, phone_number } = req.body;
+
+      // Basic validation
+      if (!username || !email || !password || !phone_number) {
+        return res.status(400).json({
+          message:
+            "All fields (username, email, password, phone_number) are required",
+        });
+      }
+
+      // Simple email format check
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          message: "Invalid email format",
+        });
+      }
+
+      // Create user
+      const user = await User.create({
+        username,
+        email,
+        password, // will be hashed via hooks
+        phone_number,
+      });
+
+      // Create default wallets for the user (one for each currency)
+      const currencies = await Currency.findAll();
+
+      for (const currency of currencies) {
+        await Wallet.create({
+          user_id: user.id,
+          currency_id: currency.id,
+          balance: 0,
+          address:
+            currency.type === "crypto"
+              ? Math.random().toString(36).substring(2, 15) +
+                Math.random().toString(36).substring(2, 15)
+              : null,
+        });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
+        expiresIn: "24h",
+      });
+
+      res.status(201).json({
+        message: "User registered successfully",
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+        },
+        token,
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: "Registration failed",
+        error: error.message,
+      });
+    }
+  }
+
+  // Login user
+  async login(req, res) {
+    try {
+      const { email, password } = req.body;
+
+      // Find user
+      const user = await User.findOne({ where: { email } });
+
+      if (!user) {
+        return res.status(404).json({
+          message: "User not found",
+        });
+      }
+
+      // Verify password
+      const isPasswordValid = await user.verifyPassword(password);
+
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          message: "Invalid credentials",
+        });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
+        expiresIn: "24h",
+      });
+
+      res.status(200).json({
+        message: "Login successful",
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+        },
+        token,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Login failed",
+        error: error.message,
+      });
+    }
+  }
+
+  //Get all users
+  async getAllUsers(req, res) {
+    try {
+      const users = await User.findAll();
+
+      res.status(200).json({
+        users,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Get users failed",
+        error: error.message,
+      });
+    }
+  }
+
+  //Update user
+  async updateUser(req, res) {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const token = authHeader.split(" ")[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      const { username, email, phone_number } = req.body;
+
+      if (!username && !email && !phone_number) {
+        return res.status(400).json({
+          message:
+            "At least one field (username, email, phone_number) is required",
+        });
+      }
+
+      const user = await User.findByPk(decoded.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (username) user.username = username;
+      if (email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          return res.status(400).json({ message: "Invalid email format" });
+        }
+        user.email = email;
+      }
+      if (phone_number) user.phone_number = phone_number;
+
+      await user.save();
+
+      res.status(200).json({
+        message: "User updated successfully",
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          phone_number: user.phone_number,
+        },
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: "Update failed",
+        error: error.message,
+      });
+    }
+  }
+
+  //Delete user
+  async deleteUser(req, res) {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const token = authHeader.split(" ")[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      const email = req.headers.email;
+      const password = req.headers.password;
+
+      if (!email || !password) {
+        return res.status(400).json({
+          message: "Email and password must be provided in headers",
+        });
+      }
+
+      const user = await User.findByPk(decoded.id);
+      if (!user || user.email !== email) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const isPasswordValid = await user.verifyPassword(password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      await user.destroy();
+
+      res.status(200).json({
+        message: "User deleted successfully",
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: "Delete failed",
+        error: error.message,
+      });
+    }
+  }
+}
+
+module.exports = new AuthController();
+</file>
+
+<file path="controllers/OrderController.js">
+const {
+  Order,
+  Currency,
+  Wallet,
+  Trade,
+  Transaction,
+  User,
+  sequelize,
+} = require("../models");
+
+class OrderController {
+  // Get all orders
+  async getAllOrders(req, res) {
+    try {
+      const { currency_id, fiat_currency_id, type } = req.query;
+
+      const query = {};
+      if (currency_id) query.currency_id = currency_id;
+      if (fiat_currency_id) query.fiat_currency_id = fiat_currency_id;
+      if (type) query.type = type;
+
+      const orders = await Order.findAll({
+        where: query,
+        include: [
+          User,
+          { model: Currency, as: "currency" },
+          { model: Currency, as: "fiatCurrency" },
+        ],
+      });
+
+      res.status(200).json({
+        orders,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to fetch orders",
+        error: error.message,
+      });
+    }
+  }
+
+  // Get user orders
+  async getUserOrders(req, res) {
+    try {
+      const userId = req.user.id;
+      const { status } = req.query;
+
+      const query = { user_id: userId };
+      if (status) query.status = status;
+
+      const orders = await Order.findAll({
+        where: query,
+        include: [
+          { model: Currency, as: "currency" },
+          { model: Currency, as: "fiatCurrency" },
+        ],
+      });
+
+      res.status(200).json({
+        orders,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to fetch orders",
+        error: error.message,
+      });
+    }
+  }
+
+  // Create a new order
+  async createOrder(req, res) {
+    const t = await sequelize.transaction();
+
+    try {
+      const { type, currency_id, fiat_currency_id, amount, price } = req.body;
+      const userId = req.user.id;
+
+      // Create the order
+      const order = await Order.create(
+        {
+          user_id: userId,
+          type,
+          currency_id,
+          fiat_currency_id,
+          amount,
+          price,
+          status: "open",
+        },
+        { transaction: t }
+      );
+
+      // Check if we need to reserve funds
+      if (type === "sell") {
+        // Find user's wallet for this currency
+        const wallet = await Wallet.findOne({
+          where: {
+            user_id: userId,
+            currency_id,
+          },
+          transaction: t,
+        });
+
+        if (!wallet || wallet.balance < amount) {
+          await t.rollback();
+          return res.status(400).json({
+            message: "Insufficient balance",
+          });
+        }
+
+        // Lock the funds
+        await wallet.updateBalance(-parseFloat(amount));
+      } else if (type === "buy") {
+        // Find user's wallet for the fiat currency
+        const wallet = await Wallet.findOne({
+          where: {
+            user_id: userId,
+            currency_id: fiat_currency_id,
+          },
+          transaction: t,
+        });
+
+        const totalCost = parseFloat(amount) * parseFloat(price);
+
+        if (!wallet || wallet.balance < totalCost) {
+          await t.rollback();
+          return res.status(400).json({
+            message: "Insufficient balance",
+          });
+        }
+
+        // Lock the funds
+        await wallet.updateBalance(-parseFloat(totalCost));
+      }
+
+      // Find matching orders
+      const matchingOrders = await order.findMatchingOrders();
+
+      // Process matching orders
+      let remainingAmount = parseFloat(amount);
+
+      for (const matchingOrder of matchingOrders) {
+        if (remainingAmount <= 0) break;
+
+        const tradeAmount = Math.min(
+          remainingAmount,
+          parseFloat(matchingOrder.amount)
+        );
+        const tradePrice = type === "buy" ? matchingOrder.price : order.price;
+
+        // Create trade record
+        const trade = await Trade.create(
+          {
+            buy_order_id: type === "buy" ? order.id : matchingOrder.id,
+            sell_order_id: type === "sell" ? order.id : matchingOrder.id,
+            amount: tradeAmount,
+            price: tradePrice,
+          },
+          { transaction: t }
+        );
+
+        // Update order status if fully filled
+        if (tradeAmount >= parseFloat(matchingOrder.amount)) {
+          await matchingOrder.update({ status: "filled" }, { transaction: t });
+        } else {
+          await matchingOrder.update(
+            {
+              amount: parseFloat(matchingOrder.amount) - tradeAmount,
+            },
+            { transaction: t }
+          );
+        }
+
+        remainingAmount -= tradeAmount;
+
+        // Process the trade (transfer funds)
+        const buyer = type === "buy" ? userId : matchingOrder.user_id;
+        const seller = type === "sell" ? userId : matchingOrder.user_id;
+
+        // Get buyer and seller wallets
+        const buyerFiatWallet = await Wallet.findOne({
+          where: { user_id: buyer, currency_id: fiat_currency_id },
+          transaction: t,
+        });
+
+        const buyerCryptoWallet = await Wallet.findOne({
+          where: { user_id: buyer, currency_id },
+          transaction: t,
+        });
+
+        const sellerFiatWallet = await Wallet.findOne({
+          where: { user_id: seller, currency_id: fiat_currency_id },
+          transaction: t,
+        });
+
+        const sellerCryptoWallet = await Wallet.findOne({
+          where: { user_id: seller, currency_id },
+          transaction: t,
+        });
+
+        // Calculate total cost
+        const totalFiatAmount = tradeAmount * parseFloat(tradePrice);
+
+        // Transfer crypto from seller to buyer
+        await Transaction.create(
+          {
+            type: "trade",
+            from_wallet_id: sellerCryptoWallet.id,
+            to_wallet_id: buyerCryptoWallet.id,
+            amount: tradeAmount,
+            status: "completed",
+          },
+          { transaction: t }
+        );
+
+        await buyerCryptoWallet.updateBalance(tradeAmount);
+
+        // Transfer fiat from buyer to seller
+        await Transaction.create(
+          {
+            type: "trade",
+            from_wallet_id: buyerFiatWallet.id,
+            to_wallet_id: sellerFiatWallet.id,
+            amount: totalFiatAmount,
+            status: "completed",
+          },
+          { transaction: t }
+        );
+
+        await sellerFiatWallet.updateBalance(totalFiatAmount);
+      }
+
+      // Update order status if fully filled
+      if (remainingAmount <= 0) {
+        await order.update({ status: "filled" }, { transaction: t });
+      } else if (remainingAmount < parseFloat(amount)) {
+        await order.update({ amount: remainingAmount }, { transaction: t });
+      }
+
+      await t.commit();
+
+      res.status(201).json({
+        message: "Order created successfully",
+        order,
+      });
+    } catch (error) {
+      await t.rollback();
+      res.status(500).json({
+        message: "Order creation failed",
+        error: error.message,
+      });
+    }
+  }
+
+  // Cancel an order
+  async cancelOrder(req, res) {
+    const t = await sequelize.transaction();
+
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      // Find the order
+      const order = await Order.findOne({
+        where: { id, user_id: userId },
+        include: [
+          { model: Currency, as: "currency" },
+          { model: Currency, as: "fiatCurrency" },
+        ],
+        transaction: t,
+      });
+
+      if (!order) {
+        await t.rollback();
+        return res.status(404).json({
+          message: "Order not found",
+        });
+      }
+
+      if (order.status !== "open") {
+        await t.rollback();
+        return res.status(400).json({
+          message: "Only open orders can be canceled",
+        });
+      }
+
+      // Return locked funds
+      if (order.type === "sell") {
+        // Find user's crypto wallet
+        const wallet = await Wallet.findOne({
+          where: {
+            user_id: userId,
+            currency_id: order.currency_id,
+          },
+          transaction: t,
+        });
+
+        // Return crypto
+        await wallet.updateBalance(parseFloat(order.amount));
+      } else if (order.type === "buy") {
+        // Find user's fiat wallet
+        const wallet = await Wallet.findOne({
+          where: {
+            user_id: userId,
+            currency_id: order.fiat_currency_id,
+          },
+          transaction: t,
+        });
+
+        // Return fiat
+        const totalAmount = parseFloat(order.amount) * parseFloat(order.price);
+        await wallet.updateBalance(totalAmount);
+      }
+
+      // Update order status
+      await order.update({ status: "canceled" }, { transaction: t });
+
+      await t.commit();
+
+      res.status(200).json({
+        message: "Order canceled successfully",
+        order,
+      });
+    } catch (error) {
+      await t.rollback();
+      res.status(500).json({
+        message: "Failed to cancel order",
+        error: error.message,
+      });
+    }
+  }
+}
+
+module.exports = new OrderController();
+</file>
+
+<file path="controllers/TransactionController.js">
+const { Transaction, Wallet, Currency, User } = require("../models");
+
+class TransactionController {
+  // Get user transactions
+  async getUserTransactions(req, res) {
+    try {
+      const userId = req.user.id;
+
+      // Get all user wallets
+      const wallets = await Wallet.findAll({
+        where: { user_id: userId },
+      });
+
+      const walletIds = wallets.map((wallet) => wallet.id);
+
+      // Get transactions for these wallets
+      const transactions = await Transaction.findAll({
+        where: {
+          [sequelize.Op.or]: [
+            { from_wallet_id: walletIds },
+            { to_wallet_id: walletIds },
+          ],
+        },
+        include: [
+          {
+            model: Wallet,
+            as: "fromWallet",
+            include: [User, Currency],
+          },
+          {
+            model: Wallet,
+            as: "toWallet",
+            include: [User, Currency],
+          },
+        ],
+      });
+
+      res.status(200).json({
+        transactions,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to fetch transactions",
+        error: error.message,
+      });
+    }
+  }
+
+  // Get transaction details
+  async getTransaction(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      // Get all user wallets
+      const wallets = await Wallet.findAll({
+        where: { user_id: userId },
+      });
+
+      const walletIds = wallets.map((wallet) => wallet.id);
+
+      // Find transaction
+      const transaction = await Transaction.findOne({
+        where: {
+          id,
+          [sequelize.Op.or]: [
+            { from_wallet_id: walletIds },
+            { to_wallet_id: walletIds },
+          ],
+        },
+        include: [
+          {
+            model: Wallet,
+            as: "fromWallet",
+            include: [User, Currency],
+          },
+          {
+            model: Wallet,
+            as: "toWallet",
+            include: [User, Currency],
+          },
+        ],
+      });
+
+      if (!transaction) {
+        return res.status(404).json({
+          message: "Transaction not found",
+        });
+      }
+
+      res.status(200).json({
+        transaction,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to fetch transaction",
+        error: error.message,
+      });
+    }
+  }
+}
+
+module.exports = new TransactionController();
+</file>
+
+<file path="controllers/WalletController.js">
+const { Wallet, Currency, Transaction } = require("../models");
+
+class WalletController {
+  // Get all wallets for a user
+  async getUserWallets(req, res) {
+    try {
+      const userId = req.user.id;
+
+      const wallets = await Wallet.findAll({
+        where: { user_id: userId },
+        include: [Currency],
+      });
+
+      res.status(200).json({
+        wallets,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to fetch wallets",
+        error: error.message,
+      });
+    }
+  }
+
+  // Get specific wallet
+  async getWallet(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const wallet = await Wallet.findOne({
+        where: { id, user_id: userId },
+        include: [Currency],
+      });
+
+      if (!wallet) {
+        return res.status(404).json({
+          message: "Wallet not found",
+        });
+      }
+
+      res.status(200).json({
+        wallet,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Failed to fetch wallet",
+        error: error.message,
+      });
+    }
+  }
+
+  // Deposit funds
+  async deposit(req, res) {
+    try {
+      const { wallet_id, amount } = req.body;
+      const userId = req.user.id;
+
+      // Check if wallet belongs to user
+      const wallet = await Wallet.findOne({
+        where: { id: wallet_id, user_id: userId },
+        include: [Currency],
+      });
+
+      if (!wallet) {
+        return res.status(404).json({
+          message: "Wallet not found",
+        });
+      }
+
+      // Create deposit transaction
+      const transaction = await Transaction.create({
+        type: "deposit",
+        to_wallet_id: wallet.id,
+        amount,
+        status: "completed",
+      });
+
+      // Update wallet balance
+      await wallet.updateBalance(parseFloat(amount));
+
+      res.status(200).json({
+        message: "Deposit successful",
+        transaction,
+        wallet: {
+          id: wallet.id,
+          balance: wallet.balance,
+          currency: wallet.Currency.symbol,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Deposit failed",
+        error: error.message,
+      });
+    }
+  }
+
+  // Withdraw funds
+  async withdraw(req, res) {
+    try {
+      const { wallet_id, amount, external_address } = req.body;
+      const userId = req.user.id;
+
+      // Check if wallet belongs to user
+      const wallet = await Wallet.findOne({
+        where: { id: wallet_id, user_id: userId },
+        include: [Currency],
+      });
+
+      if (!wallet) {
+        return res.status(404).json({
+          message: "Wallet not found",
+        });
+      }
+
+      // Check if sufficient balance
+      if (wallet.balance < amount) {
+        return res.status(400).json({
+          message: "Insufficient balance",
+        });
+      }
+
+      // Create withdrawal transaction
+      const transaction = await Transaction.create({
+        type: "withdrawal",
+        from_wallet_id: wallet.id,
+        amount,
+        status: "pending",
+        external_address,
+      });
+
+      // Update wallet balance (will be updated once transaction is confirmed)
+      await wallet.updateBalance(-parseFloat(amount));
+
+      res.status(200).json({
+        message: "Withdrawal initiated",
+        transaction,
+        wallet: {
+          id: wallet.id,
+          balance: wallet.balance,
+          currency: wallet.Currency.symbol,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Withdrawal failed",
+        error: error.message,
+      });
+    }
+  }
+
+  // Transfer funds to another user within the system
+  async transfer(req, res) {
+    try {
+      const { from_wallet_id, to_address, amount } = req.body;
+      const userId = req.user.id;
+
+      // Check if source wallet belongs to user
+      const fromWallet = await Wallet.findOne({
+        where: { id: from_wallet_id, user_id: userId },
+        include: [Currency],
+      });
+
+      if (!fromWallet) {
+        return res.status(404).json({
+          message: "Wallet not found",
+        });
+      }
+
+      // Check if sufficient balance
+      if (fromWallet.balance < amount) {
+        return res.status(400).json({
+          message: "Insufficient balance",
+        });
+      }
+
+      // Find destination wallet by address
+      const toWallet = await Wallet.findOne({
+        where: { address: to_address },
+        include: [Currency],
+      });
+
+      if (!toWallet) {
+        return res.status(404).json({
+          message: "Destination wallet not found",
+        });
+      }
+
+      // Ensure same currency
+      if (fromWallet.currency_id !== toWallet.currency_id) {
+        return res.status(400).json({
+          message: "Cannot transfer between different currencies",
+        });
+      }
+
+      // Create transfer transaction
+      const transaction = await Transaction.create({
+        type: "trade",
+        from_wallet_id: fromWallet.id,
+        to_wallet_id: toWallet.id,
+        amount,
+        status: "completed",
+      });
+
+      // Update wallet balances
+      await fromWallet.updateBalance(-parseFloat(amount));
+      await toWallet.updateBalance(parseFloat(amount));
+
+      res.status(200).json({
+        message: "Transfer successful",
+        transaction,
+        wallet: {
+          id: fromWallet.id,
+          balance: fromWallet.balance,
+          currency: fromWallet.Currency.symbol,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Transfer failed",
+        error: error.message,
+      });
+    }
+  }
+}
+
+module.exports = new WalletController();
+</file>
+
+<file path="middleware/auth.js">
+const jwt = require("jsonwebtoken");
+const { User } = require("../models");
+
+exports.authenticate = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Find user
+    const user = await User.findByPk(decoded.id);
+
+    if (!user) {
+      return res.status(401).json({
+        message: "User not found",
+      });
+    }
+
+    // Add user to request
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({
+      message: "Authentication failed",
+      error: error.message,
+    });
+  }
+};
+</file>
+
+<file path="migrations/20250424165320-create-users.js">
+"use strict";
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("users", {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      username: { type: Sequelize.STRING, allowNull: false, unique: true },
+      email: { type: Sequelize.STRING, allowNull: false, unique: true },
+      password: { type: Sequelize.STRING, allowNull: false },
+      phone_number: { type: Sequelize.STRING },
+      kyc_verified: { type: Sequelize.BOOLEAN, defaultValue: false },
+      created_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updated_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+  },
+
+  async down(queryInterface, Sequelize) {
+    await queryInterface.dropTable("users");
+  },
+};
+</file>
+
+<file path="migrations/20250424165336-create-currencies.js">
+"use strict";
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("currencies", {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      name: { type: Sequelize.STRING, allowNull: false },
+      symbol: { type: Sequelize.STRING, allowNull: false, unique: true },
+      type: { type: Sequelize.ENUM("crypto", "fiat"), allowNull: false },
+      created_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updated_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+  },
+
+  async down(queryInterface, Sequelize) {
+    await queryInterface.dropTable("currencies");
+  },
+};
+</file>
+
+<file path="migrations/20250424165343-create-wallets.js">
+"use strict";
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("wallets", {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      user_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: { model: "users", key: "id" },
+        onDelete: "CASCADE",
+      },
+      currency_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: { model: "currencies", key: "id" },
+        onDelete: "CASCADE",
+      },
+      balance: {
+        type: Sequelize.DECIMAL(18, 8),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      address: { type: Sequelize.STRING },
+      created_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updated_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+  },
+
+  async down(queryInterface, Sequelize) {
+    await queryInterface.dropTable("wallets");
+  },
+};
+</file>
+
+<file path="migrations/20250424165416-create-orders.js">
+"use strict";
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("orders", {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      user_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: { model: "users", key: "id" },
+        onDelete: "CASCADE",
+      },
+      type: { type: Sequelize.ENUM("buy", "sell"), allowNull: false },
+      currency_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: { model: "currencies", key: "id" },
+        onDelete: "CASCADE",
+      },
+      fiat_currency_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: { model: "currencies", key: "id" },
+        onDelete: "CASCADE",
+      },
+      amount: { type: Sequelize.DECIMAL(18, 8), allowNull: false },
+      price: { type: Sequelize.DECIMAL(18, 2), allowNull: false },
+      status: {
+        type: Sequelize.ENUM("open", "filled", "canceled"),
+        allowNull: false,
+        defaultValue: "open",
+      },
+      created_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updated_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+  },
+
+  async down(queryInterface, Sequelize) {
+    await queryInterface.dropTable("orders");
+  },
+};
+</file>
+
+<file path="migrations/20250424165424-create-trades.js">
+"use strict";
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("trades", {
+      id: { type: Sequelize.INTEGER, primaryKey: true, autoIncrement: true },
+      buy_order_id: {
+        type: Sequelize.INTEGER,
+        references: { model: "orders", key: "id" },
+        onDelete: "SET NULL",
+      },
+      sell_order_id: {
+        type: Sequelize.INTEGER,
+        references: { model: "orders", key: "id" },
+        onDelete: "SET NULL",
+      },
+      amount: { type: Sequelize.DECIMAL(18, 8), allowNull: false },
+      price: { type: Sequelize.DECIMAL(18, 2), allowNull: false },
+      created_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+      updated_at: {
+        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+  },
+
+  async down(queryInterface, Sequelize) {
+    await queryInterface.dropTable("trades");
+  },
+};
+</file>
+
+<file path="models/Currency.js">
+const { Model, DataTypes } = require("sequelize");
+
+module.exports = (sequelize) => {
+  class Currency extends Model {
+    static associate(models) {
+      Currency.hasMany(models.Wallet, { foreignKey: "currency_id" });
+      Currency.hasMany(models.Order, {
+        foreignKey: "currency_id",
+        as: "currencyOrders",
+      });
+      Currency.hasMany(models.Order, {
+        foreignKey: "fiat_currency_id",
+        as: "fiatCurrencyOrders",
+      });
+    }
+
+    // Method to get all wallets with this currency
+    async getWallets() {
+      return await sequelize.models.Wallet.findAll({
+        where: { currency_id: this.id },
+        include: [sequelize.models.User],
+      });
+    }
+
+    // Method to get all buy/sell orders for this currency
+    async getOrders(type = null) {
+      const query = { currency_id: this.id };
+      if (type) query.type = type;
+
+      return await sequelize.models.Order.findAll({
+        where: query,
+        include: [
+          sequelize.models.User,
+          { model: sequelize.models.Currency, as: "fiatCurrency" },
+        ],
+      });
+    }
+  }
+
+  Currency.init(
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      symbol: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+      },
+      type: {
+        type: DataTypes.ENUM("crypto", "fiat"),
+        allowNull: false,
+      },
+      created_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+      updated_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+    },
+    {
+      sequelize,
+      modelName: "Currency",
+      tableName: "currencies",
+      timestamps: false,
+    }
+  );
+
+  return Currency;
+};
+</file>
+
+<file path="models/index.js">
+const sequelize = require("../config/database");
+const fs = require("fs");
+const path = require("path");
+const basename = path.basename(__filename);
+const db = {};
+
+// Import all model files
+fs.readdirSync(__dirname)
+  .filter((file) => {
+    return (
+      file.indexOf(".") !== 0 && file !== basename && file.slice(-3) === ".js"
+    );
+  })
+  .forEach((file) => {
+    const model = require(path.join(__dirname, file))(sequelize);
+    db[model.name] = model;
+  });
+
+// Set up associations
+Object.keys(db).forEach((modelName) => {
+  if (db[modelName].associate) {
+    db[modelName].associate(db);
+  }
+});
+
+db.sequelize = sequelize;
+db.Sequelize = require("sequelize");
+
+module.exports = db;
+</file>
+
+<file path="models/Order.js">
+const { Model, DataTypes } = require("sequelize");
+
+module.exports = (sequelize) => {
+  class Order extends Model {
+    static associate(models) {
+      Order.belongsTo(models.User, { foreignKey: "user_id" });
+      Order.belongsTo(models.Currency, {
+        foreignKey: "currency_id",
+        as: "currency",
+      });
+      Order.belongsTo(models.Currency, {
+        foreignKey: "fiat_currency_id",
+        as: "fiatCurrency",
+      });
+      Order.hasMany(models.Trade, {
+        foreignKey: "buy_order_id",
+        as: "buyTrades",
+      });
+      Order.hasMany(models.Trade, {
+        foreignKey: "sell_order_id",
+        as: "sellTrades",
+      });
+    }
+
+    // Method to get all trades related to this order
+    async getTrades() {
+      return await sequelize.models.Trade.findAll({
+        where: {
+          [sequelize.Op.or]: [
+            { buy_order_id: this.id },
+            { sell_order_id: this.id },
+          ],
+        },
+      });
+    }
+
+    // Method to find matching orders
+    async findMatchingOrders() {
+      const oppositeType = this.type === "buy" ? "sell" : "buy";
+
+      return await sequelize.models.Order.findAll({
+        where: {
+          type: oppositeType,
+          currency_id: this.currency_id,
+          fiat_currency_id: this.fiat_currency_id,
+          status: "open",
+          // For buy orders, find sell orders with price <= this.price
+          // For sell orders, find buy orders with price >= this.price
+          price:
+            this.type === "buy"
+              ? { [sequelize.Op.lte]: this.price }
+              : { [sequelize.Op.gte]: this.price },
+        },
+        order: [["price", this.type === "buy" ? "ASC" : "DESC"]],
+        include: [sequelize.models.User],
+      });
+    }
+  }
+
+  Order.init(
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      user_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "users",
+          key: "id",
+        },
+      },
+      type: {
+        type: DataTypes.ENUM("buy", "sell"),
+        allowNull: false,
+      },
+      currency_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "currencies",
+          key: "id",
+        },
+      },
+      fiat_currency_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "currencies",
+          key: "id",
+        },
+      },
+      amount: {
+        type: DataTypes.DECIMAL(18, 8),
+        allowNull: false,
+      },
+      price: {
+        type: DataTypes.DECIMAL(18, 2),
+        allowNull: false,
+      },
+      status: {
+        type: DataTypes.ENUM("open", "filled", "canceled"),
+        allowNull: false,
+        defaultValue: "open",
+      },
+      created_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+      updated_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+    },
+    {
+      sequelize,
+      modelName: "Order",
+      tableName: "orders",
+      timestamps: false,
+    }
+  );
+
+  return Order;
+};
+</file>
+
+<file path="models/Trade.js">
+const { Model, DataTypes } = require("sequelize");
+
+module.exports = (sequelize) => {
+  class Trade extends Model {
+    static associate(models) {
+      Trade.belongsTo(models.Order, {
+        foreignKey: "buy_order_id",
+        as: "buyOrder",
+      });
+      Trade.belongsTo(models.Order, {
+        foreignKey: "sell_order_id",
+        as: "sellOrder",
+      });
+    }
+
+    // Method to get detailed trade information
+    async getTradeDetails() {
+      return await sequelize.models.Trade.findByPk(this.id, {
+        include: [
+          {
+            model: sequelize.models.Order,
+            as: "buyOrder",
+            include: [
+              sequelize.models.User,
+              { model: sequelize.models.Currency, as: "currency" },
+              { model: sequelize.models.Currency, as: "fiatCurrency" },
+            ],
+          },
+          {
+            model: sequelize.models.Order,
+            as: "sellOrder",
+            include: [
+              sequelize.models.User,
+              { model: sequelize.models.Currency, as: "currency" },
+              { model: sequelize.models.Currency, as: "fiatCurrency" },
+            ],
+          },
+        ],
+      });
+    }
+  }
+
+  Trade.init(
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      buy_order_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "orders",
+          key: "id",
+        },
+      },
+      sell_order_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "orders",
+          key: "id",
+        },
+      },
+      amount: {
+        type: DataTypes.DECIMAL(18, 8),
+        allowNull: false,
+      },
+      price: {
+        type: DataTypes.DECIMAL(18, 2),
+        allowNull: false,
+      },
+      created_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+    },
+    {
+      sequelize,
+      modelName: "Trade",
+      tableName: "trades",
+      timestamps: false,
+    }
+  );
+
+  return Trade;
+};
+</file>
+
+<file path="models/Transation.js">
+const { Model, DataTypes } = require("sequelize");
+
+module.exports = (sequelize) => {
+  class Transaction extends Model {
+    static associate(models) {
+      Transaction.belongsTo(models.Wallet, {
+        foreignKey: "from_wallet_id",
+        as: "fromWallet",
+      });
+      Transaction.belongsTo(models.Wallet, {
+        foreignKey: "to_wallet_id",
+        as: "toWallet",
+      });
+    }
+
+    // Method to get details with related models
+    async getDetails() {
+      return await sequelize.models.Transaction.findByPk(this.id, {
+        include: [
+          {
+            model: sequelize.models.Wallet,
+            as: "fromWallet",
+            include: [sequelize.models.User, sequelize.models.Currency],
+          },
+          {
+            model: sequelize.models.Wallet,
+            as: "toWallet",
+            include: [sequelize.models.User, sequelize.models.Currency],
+          },
+        ],
+      });
+    }
+  }
+
+  Transaction.init(
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      type: {
+        type: DataTypes.ENUM("deposit", "withdrawal", "trade"),
+        allowNull: false,
+      },
+      from_wallet_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "wallets",
+          key: "id",
+        },
+      },
+      to_wallet_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "wallets",
+          key: "id",
+        },
+      },
+      amount: {
+        type: DataTypes.DECIMAL(18, 8),
+        allowNull: false,
+      },
+      status: {
+        type: DataTypes.ENUM("pending", "completed", "failed"),
+        allowNull: false,
+        defaultValue: "pending",
+      },
+      fee: {
+        type: DataTypes.DECIMAL(18, 8),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      external_address: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      created_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+      updated_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+    },
+    {
+      sequelize,
+      modelName: "Transaction",
+      tableName: "transactions",
+      timestamps: false,
+    }
+  );
+
+  return Transaction;
+};
+</file>
+
+<file path="models/User.js">
+const { Model, DataTypes } = require("sequelize");
+const bcrypt = require("bcrypt");
+
+module.exports = (sequelize) => {
+  class User extends Model {
+    static associate(models) {
+      User.hasMany(models.Wallet, { foreignKey: "user_id" });
+      User.hasMany(models.Order, { foreignKey: "user_id" });
+    }
+
+    // Method to get user's wallets
+    async getWallets() {
+      return await sequelize.models.Wallet.findAll({
+        where: { user_id: this.id },
+      });
+    }
+
+    // Method to get user's orders
+    async getOrders(status = null) {
+      const query = { user_id: this.id };
+      if (status) query.status = status;
+
+      return await sequelize.models.Order.findAll({
+        where: query,
+        include: [
+          { model: sequelize.models.Currency, as: "currency" },
+          { model: sequelize.models.Currency, as: "fiatCurrency" },
+        ],
+      });
+    }
+
+    // Method to get user's transactions
+    async getTransactions() {
+      const wallets = await this.getWallets();
+      const walletIds = wallets.map((wallet) => wallet.id);
+
+      return await sequelize.models.Transaction.findAll({
+        where: {
+          [sequelize.Op.or]: [
+            { from_wallet_id: walletIds },
+            { to_wallet_id: walletIds },
+          ],
+        },
+        include: [
+          { model: sequelize.models.Wallet, as: "fromWallet" },
+          { model: sequelize.models.Wallet, as: "toWallet" },
+        ],
+      });
+    }
+
+    // Helper method to verify password
+    async verifyPassword(password) {
+      return await bcrypt.compare(password, this.password);
+    }
+  }
+
+  User.init(
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      username: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+      },
+      email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+        validate: {
+          isEmail: true,
+        },
+      },
+      password: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      phone_number: {
+        type: DataTypes.STRING,
+      },
+      kyc_verified: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      },
+      created_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+      updated_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+    },
+    {
+      sequelize,
+      modelName: "User",
+      tableName: "users",
+      timestamps: false,
+      hooks: {
+        beforeCreate: async (user) => {
+          if (user.password) {
+            user.password = await bcrypt.hash(user.password, 10);
+          }
+        },
+        beforeUpdate: async (user) => {
+          if (user.changed("password")) {
+            user.password = await bcrypt.hash(user.password, 10);
+          }
+        },
+      },
+    }
+  );
+
+  return User;
+};
+</file>
+
+<file path="models/Wallet.js">
+const { Model, DataTypes } = require("sequelize");
+
+module.exports = (sequelize) => {
+  class Wallet extends Model {
+    static associate(models) {
+      Wallet.belongsTo(models.User, { foreignKey: "user_id" });
+      Wallet.belongsTo(models.Currency, { foreignKey: "currency_id" });
+      Wallet.hasMany(models.Transaction, {
+        foreignKey: "from_wallet_id",
+        as: "outgoingTransactions",
+      });
+      Wallet.hasMany(models.Transaction, {
+        foreignKey: "to_wallet_id",
+        as: "incomingTransactions",
+      });
+    }
+
+    // Method to get wallet's transactions
+    async getTransactions() {
+      return await sequelize.models.Transaction.findAll({
+        where: {
+          [sequelize.Op.or]: [
+            { from_wallet_id: this.id },
+            { to_wallet_id: this.id },
+          ],
+        },
+        include: [
+          {
+            model: sequelize.models.Wallet,
+            as: "fromWallet",
+            include: [sequelize.models.Currency],
+          },
+          {
+            model: sequelize.models.Wallet,
+            as: "toWallet",
+            include: [sequelize.models.Currency],
+          },
+        ],
+      });
+    }
+
+    // Method to update balance
+    async updateBalance(amount) {
+      this.balance += amount;
+      return await this.save();
+    }
+  }
+
+  Wallet.init(
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      user_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "users",
+          key: "id",
+        },
+      },
+      currency_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: "currencies",
+          key: "id",
+        },
+      },
+      balance: {
+        type: DataTypes.DECIMAL(18, 8),
+        allowNull: false,
+        defaultValue: 0,
+      },
+      address: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      created_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+      updated_at: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW,
+      },
+    },
+    {
+      sequelize,
+      modelName: "Wallet",
+      tableName: "wallets",
+      timestamps: false,
+    }
+  );
+
+  return Wallet;
+};
+</file>
+
+<file path="package.json">
+{
+  "name": "crypto-exchange",
+  "version": "1.0.0",
+  "description": "A cryptocurrency exchange platform API",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "seed": "node seeders/DatabaseSeeder.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "mysql2": "^3.2.0",
+    "sequelize": "^6.30.0"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0",
+    "nodemon": "^2.0.22",
+    "supertest": "^6.3.3"
+  }
+}
+</file>
+
+<file path="routes/auth.js">
+const express = require("express");
+const router = express.Router();
+const AuthController = require("../controllers/AuthController");
+
+router.post("/register", AuthController.register);
+router.post("/login", AuthController.login);
+router.get("/", AuthController.getAllUsers);
+
+module.exports = router;
+</file>
+
+<file path="routes/index.js">
+const express = require("express");
+const router = express.Router();
+
+const authRoutes = require("./auth");
+const walletRoutes = require("./wallet");
+const orderRoutes = require("./order");
+const transactionRoutes = require("./transaction");
+
+router.use("/auth", authRoutes);
+router.use("/wallets", walletRoutes);
+router.use("/orders", orderRoutes);
+router.use("/transactions", transactionRoutes);
+
+module.exports = router;
+</file>
+
+<file path="routes/order.js">
+const express = require("express");
+const router = express.Router();
+const OrderController = require("../controllers/OrderController");
+const { authenticate } = require("../middleware/auth");
+
+router.get("/", OrderController.getAllOrders);
+router.get("/user", authenticate, OrderController.getUserOrders);
+router.post("/", authenticate, OrderController.createOrder);
+router.delete("/:id", authenticate, OrderController.cancelOrder);
+
+module.exports = router;
+</file>
+
+<file path="routes/transaction.js">
+const express = require("express");
+const router = express.Router();
+const TransactionController = require("../controllers/TransactionController");
+const { authenticate } = require("../middleware/auth");
+
+router.get("/", authenticate, TransactionController.getUserTransactions);
+router.get("/:id", authenticate, TransactionController.getTransaction);
+
+module.exports = router;
+</file>
+
+<file path="routes/wallet.js">
+const express = require("express");
+const router = express.Router();
+const WalletController = require("../controllers/WalletController");
+const { authenticate } = require("../middleware/auth");
+
+router.get("/", authenticate, WalletController.getUserWallets);
+router.get("/:id", authenticate, WalletController.getWallet);
+router.post("/deposit", authenticate, WalletController.deposit);
+router.post("/withdraw", authenticate, WalletController.withdraw);
+router.post("/transfer", authenticate, WalletController.transfer);
+
+module.exports = router;
+</file>
+
+<file path="seeders/DatabaseSeeder.js">
+const { sequelize, User, Currency, Wallet } = require("../models");
+const bcrypt = require("bcrypt");
+
+async function seed() {
+  try {
+    // Sync database with force option to recreate tables
+    await sequelize.sync({ force: true });
+
+    // Create currencies
+    const currencies = await Currency.bulkCreate([
+      { name: "Bitcoin", symbol: "BTC", type: "crypto" },
+      { name: "Ethereum", symbol: "ETH", type: "crypto" },
+      { name: "Ripple", symbol: "XRP", type: "crypto" },
+      { name: "Dogecoin", symbol: "DOGE", type: "crypto" },
+      { name: "Thai Baht", symbol: "THB", type: "fiat" },
+      { name: "US Dollar", symbol: "USD", type: "fiat" },
+    ]);
+
+    // Create test users
+    const hashedPassword = await bcrypt.hash("password123", 10);
+
+    const users = await User.bulkCreate([
+      {
+        username: "testuser1",
+        email: "user1@example.com",
+        password: hashedPassword,
+        phone_number: "+66123456789",
+        kyc_verified: true,
+      },
+      {
+        username: "testuser2",
+        email: "user2@example.com",
+        password: hashedPassword,
+        phone_number: "+66987654321",
+        kyc_verified: true,
+      },
+      {
+        username: "testuser3",
+        email: "user3@example.com",
+        password: hashedPassword,
+        phone_number: "+66555555555",
+        kyc_verified: false,
+      },
+    ]);
+
+    // Create wallets for users
+    const wallets = [];
+
+    for (const user of users) {
+      for (const currency of currencies) {
+        wallets.push({
+          user_id: user.id,
+          currency_id: currency.id,
+          balance: currency.type === "fiat" ? 10000 : 1,
+          address:
+            currency.type === "crypto"
+              ? Math.random().toString(36).substring(2, 15) +
+                Math.random().toString(36).substring(2, 15)
+              : null,
+        });
+      }
+    }
+
+    await Wallet.bulkCreate(wallets);
+
+    console.log("Database seeded successfully!");
+  } catch (error) {
+    console.error("Seeding failed:", error);
+  } finally {
+    // Close database connection
+    await sequelize.close();
+  }
+}
+
+// Run the seeder if called directly
+if (require.main === module) {
+  seed();
+}
+
+module.exports = seed;
+</file>
+
+<file path="test/auth.test.js">
+const request = require("supertest");
+const app = require("../app");
+const { sequelize, User } = require("../models");
+const seed = require("../seeders/DatabaseSeeder");
+
+let token;
+let testUserId;
+
+beforeAll(async () => {
+  // Run the seeder to set up test data
+  await seed();
+});
+
+afterAll(async () => {
+  // Clean up database connection
+  await sequelize.close();
+});
+
+describe("Authentication Endpoints", () => {
+  describe("POST /api/auth/register", () => {
+    it("should register a new user", async () => {
+      const res = await request(app).post("/api/auth/register").send({
+        username: "jestuser",
+        email: "jestuser@example.com",
+        password: "password123",
+        phone_number: "+66333444555",
+      });
+
+      expect(res.statusCode).toEqual(201);
+      expect(res.body).toHaveProperty("token");
+      expect(res.body).toHaveProperty("user");
+      expect(res.body.user).toHaveProperty("id");
+      expect(res.body.message).toEqual("User registered successfully");
+
+      testUserId = res.body.user.id;
+    });
+
+    it("should not register with duplicate email", async () => {
+      const res = await request(app).post("/api/auth/register").send({
+        username: "duplicateuser",
+        email: "jestuser@example.com", // Same email as before
+        password: "password123",
+        phone_number: "+66987654321",
+      });
+
+      expect(res.statusCode).toEqual(400);
+      expect(res.body).toHaveProperty("error");
+    });
+  });
+
+  describe("POST /api/auth/login", () => {
+    it("should login existing user", async () => {
+      const res = await request(app).post("/api/auth/login").send({
+        email: "jestuser@example.com",
+        password: "password123",
+      });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("token");
+      expect(res.body.message).toEqual("Login successful");
+
+      // Save token for later tests
+      token = res.body.token;
+    });
+
+    it("should not login with invalid credentials", async () => {
+      const res = await request(app).post("/api/auth/login").send({
+        email: "jestuser@example.com",
+        password: "wrongpassword",
+      });
+
+      expect(res.statusCode).toEqual(401);
+      expect(res.body.message).toEqual("Invalid credentials");
+    });
+
+    it("should not login non-existent user", async () => {
+      const res = await request(app).post("/api/auth/login").send({
+        email: "nonexistent@example.com",
+        password: "password123",
+      });
+
+      expect(res.statusCode).toEqual(404);
+      expect(res.body.message).toEqual("User not found");
+    });
+  });
+});
+</file>
+
+<file path="test/order.test.js">
+const request = require("supertest");
+const app = require("../app");
+const { sequelize } = require("../models");
+
+let token;
+let testOrderId;
+
+beforeAll(async () => {
+  // Login to get token
+  const res = await request(app).post("/api/auth/login").send({
+    email: "user1@example.com",
+    password: "password123",
+  });
+
+  token = res.body.token;
+});
+
+afterAll(async () => {
+  await sequelize.close();
+});
+
+describe("Order Endpoints", () => {
+  describe("GET /api/orders", () => {
+    it("should get all public orders", async () => {
+      const res = await request(app).get("/api/orders");
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("orders");
+      expect(Array.isArray(res.body.orders)).toBe(true);
+    });
+
+    it("should filter orders by query parameters", async () => {
+      const res = await request(app).get("/api/orders?currency_id=1&type=buy");
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("orders");
+
+      // Check that all returned orders match the filter criteria
+      if (res.body.orders.length > 0) {
+        const allMatchFilter = res.body.orders.every(
+          (order) => order.currency_id === 1 && order.type === "buy"
+        );
+        expect(allMatchFilter).toBe(true);
+      }
+    });
+  });
+
+  describe("GET /api/orders/user", () => {
+    it("should get orders for authenticated user", async () => {
+      const res = await request(app)
+        .get("/api/orders/user")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("orders");
+      expect(Array.isArray(res.body.orders)).toBe(true);
+    });
+
+    it("should filter user orders by status", async () => {
+      const res = await request(app)
+        .get("/api/orders/user?status=open")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("orders");
+
+      // Check that all returned orders match the filter criteria
+      if (res.body.orders.length > 0) {
+        const allMatchFilter = res.body.orders.every(
+          (order) => order.status === "open"
+        );
+        expect(allMatchFilter).toBe(true);
+      }
+    });
+  });
+
+  describe("POST /api/orders", () => {
+    it("should create a new buy order", async () => {
+      // First get a wallet with sufficient balance
+      const walletsRes = await request(app)
+        .get("/api/wallets")
+        .set("Authorization", `Bearer ${token}`);
+
+      // Find a fiat wallet with some balance
+      const fiatWallet = walletsRes.body.wallets.find(
+        (w) =>
+          w.Currency && w.Currency.type === "fiat" && parseFloat(w.balance) > 0
+      );
+
+      if (!fiatWallet) {
+        console.log(
+          "Skipping buy order test - no fiat wallet with balance found"
+        );
+        return;
+      }
+
+      const res = await request(app)
+        .post("/api/orders")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          type: "buy",
+          currency_id: 1, // BTC
+          fiat_currency_id: fiatWallet.currency_id,
+          amount: 0.01,
+          price: 10000.0,
+        });
+
+      expect(res.statusCode).toEqual(201);
+      expect(res.body).toHaveProperty("order");
+      expect(res.body.message).toEqual("Order created successfully");
+
+      testOrderId = res.body.order.id;
+    });
+
+    it("should create a new sell order", async () => {
+      // First get a wallet with sufficient balance
+      const walletsRes = await request(app)
+        .get("/api/wallets")
+        .set("Authorization", `Bearer ${token}`);
+
+      // Find a crypto wallet with some balance
+      const cryptoWallet = walletsRes.body.wallets.find(
+        (w) =>
+          w.Currency &&
+          w.Currency.type === "crypto" &&
+          parseFloat(w.balance) > 0
+      );
+
+      if (!cryptoWallet) {
+        console.log(
+          "Skipping sell order test - no crypto wallet with balance found"
+        );
+        return;
+      }
+
+      const res = await request(app)
+        .post("/api/orders")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          type: "sell",
+          currency_id: cryptoWallet.currency_id,
+          fiat_currency_id: 5, // THB
+          amount: 0.001, // Small amount to ensure there's enough balance
+          price: 35000.0,
+        });
+
+      expect(res.statusCode).toEqual(201);
+      expect(res.body).toHaveProperty("order");
+      expect(res.body.message).toEqual("Order created successfully");
+
+      if (!testOrderId) {
+        testOrderId = res.body.order.id;
+      }
+    });
+
+    it("should not create order with insufficient balance", async () => {
+      // Attempt to create an order with extremely high amount
+      const res = await request(app)
+        .post("/api/orders")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          type: "buy",
+          currency_id: 1,
+          fiat_currency_id: 5,
+          amount: 1000000, // Very high amount
+          price: 35000.0,
+        });
+
+      expect(res.statusCode).toEqual(400);
+      expect(res.body.message).toEqual("Insufficient balance");
+    });
+  });
+
+  describe("DELETE /api/orders/:id", () => {
+    it("should cancel an order", async () => {
+      // Skip if no test order was created
+      if (!testOrderId) {
+        console.log("Skipping cancel test - no test order available");
+        return;
+      }
+
+      const res = await request(app)
+        .delete(`/api/orders/${testOrderId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.message).toEqual("Order canceled successfully");
+      expect(res.body.order.status).toEqual("canceled");
+    });
+
+    it("should not cancel non-existent order", async () => {
+      const res = await request(app)
+        .delete("/api/orders/99999")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(404);
+      expect(res.body.message).toEqual("Order not found");
+    });
+  });
+});
+</file>
+
+<file path="test/transaction.test.js">
+const request = require("supertest");
+const app = require("../app");
+const { sequelize } = require("../models");
+
+let token;
+let testTransactionId;
+
+beforeAll(async () => {
+  // Login to get token
+  const res = await request(app).post("/api/auth/login").send({
+    email: "user1@example.com",
+    password: "password123",
+  });
+
+  token = res.body.token;
+
+  // Create a transaction by making a deposit
+  // First get a wallet
+  const walletsRes = await request(app)
+    .get("/api/wallets")
+    .set("Authorization", `Bearer ${token}`);
+
+  if (walletsRes.body.wallets.length > 0) {
+    const walletId = walletsRes.body.wallets[0].id;
+
+    // Make a deposit to create a transaction
+    const depositRes = await request(app)
+      .post("/api/wallets/deposit")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        wallet_id: walletId,
+        amount: 100,
+      });
+
+    if (depositRes.statusCode === 200) {
+      testTransactionId = depositRes.body.transaction.id;
+    }
+  }
+});
+
+afterAll(async () => {
+  await sequelize.close();
+});
+
+describe("Transaction Endpoints", () => {
+  describe("GET /api/transactions", () => {
+    it("should get all transactions for authenticated user", async () => {
+      const res = await request(app)
+        .get("/api/transactions")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("transactions");
+      expect(Array.isArray(res.body.transactions)).toBe(true);
+    });
+
+    it("should not allow access without authentication", async () => {
+      const res = await request(app).get("/api/transactions");
+
+      expect(res.statusCode).toEqual(401);
+    });
+  });
+
+  describe("GET /api/transactions/:id", () => {
+    it("should get a specific transaction", async () => {
+      // Skip if no test transaction was created
+      if (!testTransactionId) {
+        console.log(
+          "Skipping specific transaction test - no test transaction available"
+        );
+        return;
+      }
+
+      const res = await request(app)
+        .get(`/api/transactions/${testTransactionId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("transaction");
+      expect(res.body.transaction.id).toEqual(testTransactionId);
+    });
+
+    it("should return 404 for non-existent transaction", async () => {
+      const res = await request(app)
+        .get("/api/transactions/99999")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(404);
+      expect(res.body.message).toEqual("Transaction not found");
+    });
+  });
+});
+</file>
+
+<file path="test/wallet.test.js">
+const request = require("supertest");
+const app = require("../app");
+const { sequelize, User, Wallet } = require("../models");
+
+let token;
+let testWalletId;
+
+beforeAll(async () => {
+  sequelize.sync();
+
+  // Login to get token
+  const res = await request(app).post("/api/auth/login").send({
+    email: "user1@example.com",
+    password: "password123",
+  });
+
+  token = res.body.token;
+});
+
+afterAll(async () => {
+  await sequelize.close();
+});
+
+describe("Wallet Endpoints", () => {
+  describe("GET /api/wallets", () => {
+    it("should get all wallets for authenticated user", async () => {
+      const res = await request(app)
+        .get("/api/wallets")
+        .set("Authorization", `Bearer ${token}`);
+
+      console.log(res.body);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("wallets");
+      expect(Array.isArray(res.body.wallets)).toBe(true);
+      expect(res.body.wallets.length).toBeGreaterThan(0);
+
+      // Save a wallet ID for later tests
+      testWalletId = res.body.wallets[0].id;
+    });
+
+    it("should not allow access without authentication", async () => {
+      const res = await request(app).get("/api/wallets");
+
+      expect(res.statusCode).toEqual(401);
+    });
+  });
+
+  describe("GET /api/wallets/:id", () => {
+    it("should get a specific wallet", async () => {
+      const res = await request(app)
+        .get(`/api/wallets/${testWalletId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("wallet");
+      expect(res.body.wallet.id).toEqual(testWalletId);
+    });
+
+    it("should return 404 for non-existent wallet", async () => {
+      const res = await request(app)
+        .get("/api/wallets/9999")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.statusCode).toEqual(404);
+    });
+  });
+
+  describe("POST /api/wallets/deposit", () => {
+    it("should deposit funds to wallet", async () => {
+      const depositAmount = 500;
+
+      // Get initial balance
+      const initialWallet = await request(app)
+        .get(`/api/wallets/${testWalletId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      const initialBalance = parseFloat(initialWallet.body.wallet.balance);
+
+      // Make deposit
+      const res = await request(app)
+        .post("/api/wallets/deposit")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          wallet_id: testWalletId,
+          amount: depositAmount,
+        });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("transaction");
+      expect(res.body).toHaveProperty("wallet");
+      expect(parseFloat(res.body.wallet.balance)).toEqual(
+        initialBalance + depositAmount
+      );
+    });
+  });
+
+  describe("POST /api/wallets/withdraw", () => {
+    it("should withdraw funds from wallet", async () => {
+      const withdrawAmount = 200;
+
+      // Get initial balance
+      const initialWallet = await request(app)
+        .get(`/api/wallets/${testWalletId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      const initialBalance = parseFloat(initialWallet.body.wallet.balance);
+
+      // Make withdrawal
+      const res = await request(app)
+        .post("/api/wallets/withdraw")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          wallet_id: testWalletId,
+          amount: withdrawAmount,
+          external_address: "0x123abc456def789ghi",
+        });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("transaction");
+      expect(res.body).toHaveProperty("wallet");
+      expect(parseFloat(res.body.wallet.balance)).toEqual(
+        initialBalance - withdrawAmount
+      );
+    });
+
+    it("should not allow withdrawal with insufficient funds", async () => {
+      // Get current balance
+      const walletRes = await request(app)
+        .get(`/api/wallets/${testWalletId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      const currentBalance = parseFloat(walletRes.body.wallet.balance);
+      const excessiveAmount = currentBalance + 10000;
+
+      const res = await request(app)
+        .post("/api/wallets/withdraw")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          wallet_id: testWalletId,
+          amount: excessiveAmount,
+          external_address: "0x123abc456def789ghi",
+        });
+
+      expect(res.statusCode).toEqual(400);
+      expect(res.body.message).toEqual("Insufficient balance");
+    });
+  });
+
+  describe("POST /api/wallets/transfer", () => {
+    it("should transfer funds between users", async () => {
+      // First, we need a destination wallet address
+      // Get all wallets
+      const walletsRes = await request(app)
+        .get("/api/wallets")
+        .set("Authorization", `Bearer ${token}`);
+
+      // Find a different wallet for the same currency
+      const sourceWallet = walletsRes.body.wallets.find(
+        (w) => w.id === testWalletId
+      );
+      const destWallet = walletsRes.body.wallets.find(
+        (w) =>
+          w.id !== testWalletId && w.currency_id === sourceWallet.currency_id
+      );
+
+      if (!destWallet) {
+        // Skip test if no suitable destination wallet found
+        console.log("Skipping transfer test - no suitable destination wallet");
+        return;
+      }
+
+      const transferAmount = 50;
+
+      // Get initial balance
+      const initialWallet = await request(app)
+        .get(`/api/wallets/${testWalletId}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      const initialBalance = parseFloat(initialWallet.body.wallet.balance);
+
+      // Make transfer
+      const res = await request(app)
+        .post("/api/wallets/transfer")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          from_wallet_id: testWalletId,
+          to_address: destWallet.address,
+          amount: transferAmount,
+        });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body).toHaveProperty("transaction");
+      expect(res.body).toHaveProperty("wallet");
+      expect(parseFloat(res.body.wallet.balance)).toEqual(
+        initialBalance - transferAmount
+      );
+    });
+  });
+});
+</file>
+
+</files>

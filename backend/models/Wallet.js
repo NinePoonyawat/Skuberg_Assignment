@@ -42,7 +42,9 @@ module.exports = (sequelize) => {
     // Method to update balance
     async updateBalance(amount) {
       this.balance += amount;
-      return await this.save();
+      await this.save();
+
+      return this;
     }
   }
 

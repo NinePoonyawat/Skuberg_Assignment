@@ -66,15 +66,12 @@ async function seed() {
     console.log("Database seeded successfully!");
   } catch (error) {
     console.error("Seeding failed:", error);
-  } finally {
-    // Close database connection
-    await sequelize.close();
   }
 }
 
 // Run the seeder if called directly
 if (require.main === module) {
-  seed();
+  seed().finally(() => sequelize.close());
 }
 
 module.exports = seed;
